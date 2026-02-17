@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Neon Swarm</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: #0a0a0f;
+            overflow: hidden;
+            font-family: 'Orbitron', monospace;
+            touch-action: none;
+        }
+        
+        canvas {
+            display: block;
+        }
+        
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #00ffff;
+            font-size: 18px;
+            text-shadow: 0 0 10px #00ffff;
+            z-index: 10;
+        }
+        
+        #score {
+            font-size: 28px;
+            font-weight: bold;
+        }
+        
+        #combo {
+            color: #ff00ff;
+            text-shadow: 0 0 10px #ff00ff;
+            margin-top: 5px;
+        }
+        
+        #lives {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: #ff3366;
+            font-size: 24px;
+            text-shadow: 0 0 10px #ff3366;
+        }
+        
+        #high-score {
+            position: absolute;
+            top: 60px;
+            left: 20px;
+            color: #666;
+            font-size: 14px;
+        }
+        
+        #start-screen, #game-over {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: rgba(10, 10, 15, 0.95);
+            z-index: 20;
+        }
+        
+        h1 {
+            font-size: 48px;
+            color: #00ffff;
+            text-shadow: 0 0 30px #00ffff, 0 0 60px #00ffff;
+            margin-bottom: 20px;
+            animation: pulse 2s ease-in-out infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        
+        .btn {
+            padding: 15px 40px;
+            font-size: 20px;
+            font-family: 'Orbitron', monospace;
+            background: transparent;
+            border: 2px solid #ff00ff;
+            color: #ff00ff;
+            cursor: pointer;
+            text-shadow: 0 0 10px #ff00ff;
+            box-shadow: 0 0 20px rgba(255, 0, 255, 0.3);
+            transition: all 0.3s;
+            margin: 10px;
+        }
+        
+        .btn:hover {
+            background: #ff00ff;
+            color: #0a0a0f;
+        }
+        
+        #final-score, #best-score {
+            font-size: 24px;
+            color: #00ffff;
+            margin: 10px 0;
+        }
+        
+        .hidden {
+            display: none !important;
+        }
+        
+        #instructions {
+            color: #666;
+            margin-top: 30px;
+            font-size: 14px;
+            text-align: center;
+        }
+        
+        #color-indicator {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 15px;
+            z-index: 10;
+        }
+        
+        .color-dot {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            opacity: 0.3;
+            transition: all 0.2s;
+            border: 2px solid transparent;
+        }
+        
+        .color-dot.active {
+            opacity: 1;
+            transform: scale(1.3);
+            border-color: #fff;
+        }
+        
+        .color-dot.cyan { background: #00ffff; box-shadow: 0 0 15px #00ffff; }
+        .color-dot.magenta { background: #ff00ff; box-shadow: 0 0 15px #ff00ff; }
+        .color-dot.blue { background: #0066ff; box-shadow: 0 0 15px #0066ff; }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <div id="score">0</div>
+        <div id="combo">x1</div>
+    </div>
+    <div id="high-score">BEST: 0</div>
+    <div id="lives">♥♥♥</div>
+    
+    <div id="color-indicator">
+        <div class="color-dot cyan" data-color="0"></div>
+        <div class="color-dot magenta" data-color="1"></div>
+        <div class="color-dot blue" data-color="2"></div>
+    </div>
+    
+    <div id="start-screen">
+        <h1>NEON SWARM</h1>
+        <button class="btn" id="start-btn">START</button>
+        <div id="instructions">
+            Move with mouse/touch<br>
+            Collect matching colors<br>
+            Tap/click to switch colors<br>
+            Avoid different colors & enemies
+        </div>
+    </div>
+    
+    <div id="game-over" class="hidden">
+        <h1>GAME OVER</h1>
+        <div id="final-score">0</div>
+        <div id="best-score">BEST: 0</div>
+        <button class="btn" id="restart-btn">RETRY</button>
+    </div>
+    
+    <canvas id="game"></canvas>
+
+    <script>
+        const canvas = document.getElementById('game');
+        const ctx = canvas.getContext('2d');
+        
+        // Colors with shapes for colorblind accessibility
+        const COLORS = {
+            cyan: { hex: '#00ffff', shape: 'circle' },
+            magenta: { hex: '#ff00ff', shape: 'triangle' },
+            blue: { hex: '#0066ff', shape: 'square' }
+        };
+        const COLOR_KEYS = Object.keys(COLORS);
+        
+        // Game state
+        let gameRunning = false;
+        let score = 0;
+        let highScore = parseInt(localStorage.getItem('neonSwarmHighScore')) || 0;
+        let lives = 3;
+        let combo = 1;
+        let comboTimer = 0;
+        let player, particles, enemies;
+        let animationId;
+        let spawnRate = 1500;
+        let lastSpawn = 0;
+        let difficultyTimer = 0;
+        
+        // Player
+        class Player {
+            constructor() {
+                this.x = canvas.width / 2;
+                this.y = canvas.height / 2;
+                this.radius = 20;
+                this.targetX = this.x;
+                this.targetY = this.y;
+                this.colorIndex = 0;
+                this.trail = [];
+            }
+            
+            get colorData() {
+                return COLORS[COLOR_KEYS[this.colorIndex]];
+            }
+            
+            get color() {
+                return this.colorData.hex;
+            }
+            
+            update() {
+                // Smooth movement
+                this.x += (this.targetX - this.x) * 0.15;
+                this.y += (this.targetY - this.y) * 0.15;
+                
+                // Trail
+                this.trail.push({ x: this.x, y: this.y, radius: this.radius });
+                if (this.trail.length > 15) this.trail.shift();
+            }
+            
+            draw() {
+                // Draw trail
+                this.trail.forEach((p, i) => {
+                    const alpha = i / this.trail.length * 0.5;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.radius * (i / this.trail.length), 0, Math.PI * 2);
+                    ctx.fillStyle = this.color + Math.floor(alpha * 255).toString(16).padStart(2, '0');
+                    ctx.fill();
+                });
+                
+                // Draw player with glow
+                ctx.shadowBlur = 30;
+                ctx.shadowColor = this.color;
+                ctx.fillStyle = this.color;
+                
+                // Draw shape based on color (accessibility)
+                const shape = this.colorData.shape;
+                const r = this.radius;
+                
+                if (shape === 'circle') {
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
+                    ctx.fill();
+                } else if (shape === 'triangle') {
+                    ctx.beginPath();
+                    ctx.moveTo(this.x, this.y - r);
+                    ctx.lineTo(this.x + r * 0.866, this.y + r * 0.5);
+                    ctx.lineTo(this.x - r * 0.866, this.y + r * 0.5);
+                    ctx.closePath();
+                    ctx.fill();
+                } else if (shape === 'square') {
+                    ctx.fillRect(this.x - r, this.y - r, r * 2, r * 2);
+                }
+                
+                ctx.shadowBlur = 0;
+                
+                // Inner white indicator
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, r * 0.3, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            
+            switchColor() {
+                this.colorIndex = (this.colorIndex + 1) % COLOR_KEYS.length;
+                updateColorIndicator();
+            }
+        }
+        
+        // Particle
+        class Particle {
+            constructor() {
+                this.radius = 8 + Math.random() * 8;
+                this.colorIndex = Math.floor(Math.random() * COLOR_KEYS.length);
+                this.x = Math.random() < 0.5 ? -20 : canvas.width + 20;
+                this.y = Math.random() * canvas.height;
+                this.vx = (Math.random() - 0.5) * 3;
+                this.vy = (Math.random() - 0.5) * 2;
+                
+                // Ensure particles move toward center
+                if (this.x < 0) this.vx = Math.abs(this.vx);
+                else this.vx = -Math.abs(this.vx);
+            }
+            
+            get colorData() {
+                return COLORS[COLOR_KEYS[this.colorIndex]];
+            }
+            
+            get color() {
+                return this.colorData.hex;
+            }
+            
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+            }
+            
+            draw() {
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = this.color;
+                ctx.fillStyle = this.color;
+                
+                const shape = this.colorData.shape;
+                const r = this.radius;
+                
+                if (shape === 'circle') {
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
+                    ctx.fill();
+                } else if (shape === 'triangle') {
+                    ctx.beginPath();
+                    ctx.moveTo(this.x, this.y - r);
+                    ctx.lineTo(this.x + r * 0.866, this.y + r * 0.5);
+                    ctx.lineTo(this.x - r * 0.866, this.y + r * 0.5);
+                    ctx.closePath();
+                    ctx.fill();
+                } else if (shape === 'square') {
+                    ctx.fillRect(this.x - r, this.y - r, r * 2, r * 2);
+                }
+                
+                ctx.shadowBlur = 0;
+            }
+            
+            isOffScreen() {
+                return this.x < -50 || this.x > canvas.width + 50 || 
+                       this.y < -50 || this.y > canvas.height + 50;
+            }
+        }
+        
+        // Enemy
+        class Enemy {
+            constructor() {
+                this.size = 25;
+                this.colorIndex = Math.floor(Math.random() * COLOR_KEYS.length);
+                // Spawn from edges
+                const side = Math.floor(Math.random() * 4);
+                switch(side) {
+                    case 0: this.x = Math.random() * canvas.width; this.y = -30; break;
+                    case 1: this.x = canvas.width + 30; this.y = Math.random() * canvas.height; break;
+                    case 2: this.x = Math.random() * canvas.width; this.y = canvas.height + 30; break;
+                    case 3: this.x = -30; this.y = Math.random() * canvas.height; break;
+                }
+                
+                // Move toward player with some randomness
+                const angle = Math.atan2(player.y - this.y, player.x - this.x);
+                const speed = 2 + Math.random() * 2;
+                this.vx = Math.cos(angle) * speed;
+                this.vy = Math.sin(angle) * speed;
+            }
+            
+            get colorData() {
+                return COLORS[COLOR_KEYS[this.colorIndex]];
+            }
+            
+            get color() {
+                return this.colorData.hex;
+            }
+            
+            update() {
+                // Gradually adjust direction toward player
+                const angle = Math.atan2(player.y - this.y, player.x - this.x);
+                this.vx += Math.cos(angle) * 0.1;
+                this.vy += Math.sin(angle) * 0.1;
+                
+                // Cap speed
+                const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                if (speed > 4) {
+                    this.vx = (this.vx / speed) * 4;
+                    this.vy = (this.vy / speed) * 4;
+                }
+                
+                this.x += this.vx;
+                this.y += this.vy;
+            }
+            
+            draw() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(Date.now() / 500);
+                
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = this.color;
+                ctx.fillStyle = this.color;
+                
+                // Draw diamond shape
+                ctx.beginPath();
+                ctx.moveTo(0, -this.size);
+                ctx.lineTo(this.size * 0.7, 0);
+                ctx.lineTo(0, this.size);
+                ctx.lineTo(-this.size * 0.7, 0);
+                ctx.closePath();
+                ctx.fill();
+                
+                ctx.shadowBlur = 0;
+                ctx.restore();
+            }
+        }
+        
+        // Initialize
+        function init() {
+            resize();
+            player = new Player();
+            particles = [];
+            enemies = [];
+            score = 0;
+            lives = 3;
+            combo = 1;
+            comboTimer = 0;
+            spawnRate = 1500;
+            updateUI();
+            updateColorIndicator();
+        }
+        
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        
+        // Update color indicator UI
+        function updateColorIndicator() {
+            const dots = document.querySelectorAll('.color-dot');
+            dots.forEach((dot, i) => {
+                dot.classList.toggle('active', i === player.colorIndex);
+            });
+        }
+        
+        // Game loop
+        function update(timestamp) {
+            if (!gameRunning) return;
+            
+            // Clear
+            ctx.fillStyle = 'rgba(10, 10, 15, 0.3)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw grid
+            ctx.strokeStyle = 'rgba(0, 255, 255, 0.05)';
+            ctx.lineWidth = 1;
+            const gridSize = 50;
+            for (let x = 0; x < canvas.width; x += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, canvas.height);
+                ctx.stroke();
+            }
+            for (let y = 0; y < canvas.height; y += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(canvas.width, y);
+                ctx.stroke();
+            }
+            
+            // Spawn particles
+            if (timestamp - lastSpawn > spawnRate) {
+                particles.push(new Particle());
+                lastSpawn = timestamp;
+            }
+            
+            // Increase difficulty over time
+            difficultyTimer += 16;
+            if (difficultyTimer > 3000) {
+                difficultyTimer = 0;
+                spawnRate = Math.max(500, spawnRate - 100);
+                // Spawn enemy every 5 seconds after initial delay
+                if (score > 200 || enemies.length === 0) {
+                    enemies.push(new Enemy());
+                }
+            }
+            
+            // Combo timer decay
+            comboTimer += 16;
+            if (comboTimer > 2000 && combo > 1) {
+                combo = Math.max(1, combo - 1);
+                comboTimer = 0;
+                updateUI();
+            }
+            
+            // Update and draw particles
+            particles = particles.filter(p => !p.isOffScreen());
+            particles.forEach(p => {
+                p.update();
+                p.draw();
+                
+                // Collision with player
+                const dx = p.x - player.x;
+                const dy = p.y - player.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                
+                if (dist < player.radius + p.radius) {
+                    if (p.colorIndex === player.colorIndex) {
+                        // Match! Collect
+                        score += 10 * combo;
+                        combo = Math.min(10, combo + 1);
+                        comboTimer = 0; // Reset combo timer
+                        player.radius = Math.min(35, player.radius + 0.3);
+                    } else {
+                        // Wrong color - take damage!
+                        lives--;
+                        combo = 1;
+                        comboTimer = 0;
+                        player.radius = 20;
+                        
+                        // Screen flash
+                        ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
+                        ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    }
+                    particles.splice(particles.indexOf(p), 1);
+                    updateUI();
+                    
+                    if (lives <= 0) {
+                        gameOver();
+                        return;
+                    }
+                }
+            });
+            
+            // Update and draw enemies
+            enemies.forEach(e => {
+                e.update();
+                e.draw();
+                
+                // Collision with player
+                const dx = e.x - player.x;
+                const dy = e.y - player.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                
+                if (dist < player.radius + e.size * 0.7) {
+                    // Hit!
+                    lives--;
+                    enemies.splice(enemies.indexOf(e), 1);
+                    player.radius = 20;
+                    combo = 1;
+                    comboTimer = 0;
+                    
+                    // Flash effect
+                    ctx.fillStyle = 'rgba(255, 0, 0, 0.5)';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    
+                    updateUI();
+                    
+                    if (lives <= 0) {
+                        gameOver();
+                        return;
+                    }
+                }
+            });
+            
+            // Update and draw player
+            player.update();
+            player.draw();
+            
+            animationId = requestAnimationFrame(update);
+        }
+        
+        function updateUI() {
+            document.getElementById('score').textContent = score;
+            document.getElementById('combo').textContent = 'x' + combo;
+            document.getElementById('lives').textContent = '♥'.repeat(lives);
+            document.getElementById('high-score').textContent = 'BEST: ' + highScore;
+        }
+        
+        function startGame() {
+            document.getElementById('start-screen').classList.add('hidden');
+            document.getElementById('game-over').classList.add('hidden');
+            init();
+            gameRunning = true;
+            lastSpawn = performance.now();
+            requestAnimationFrame(update);
+        }
+        
+        function gameOver() {
+            gameRunning = false;
+            cancelAnimationFrame(animationId);
+            
+            // Update high score
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('neonSwarmHighScore', highScore);
+            }
+            
+            document.getElementById('final-score').textContent = 'SCORE: ' + score;
+            document.getElementById('best-score').textContent = 'BEST: ' + highScore;
+            document.getElementById('game-over').classList.remove('hidden');
+        }
+        
+        // Event listeners
+        window.addEventListener('resize', resize);
+        
+        // Mouse/touch controls
+        canvas.addEventListener('mousemove', (e) => {
+            player.targetX = e.clientX;
+            player.targetY = e.clientY;
+        });
+        
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            player.targetX = e.touches[0].clientX;
+            player.targetY = e.touches[0].clientY;
+        }, { passive: false });
+        
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            player.targetX = e.touches[0].clientX;
+            player.targetY = e.touches[0].clientY;
+        }, { passive: false });
+        
+        // Click/tap to switch color
+        canvas.addEventListener('click', () => {
+            if (gameRunning) player.switchColor();
+        });
+        
+        // Also allow spacebar
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' && gameRunning) {
+                e.preventDefault();
+                player.switchColor();
+            }
+        });
+        
+        // Buttons
+        document.getElementById('start-btn').addEventListener('click', startGame);
+        document.getElementById('restart-btn').addEventListener('click', startGame);
+        
+        // Initial setup
+        resize();
+        document.getElementById('high-score').textContent = 'BEST: ' + highScore;
+    </script>
+</body>
+</html>
